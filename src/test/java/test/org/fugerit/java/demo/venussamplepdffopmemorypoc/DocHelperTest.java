@@ -50,15 +50,20 @@ class DocHelperTest {
             String chainId = "document";
             // handler id
             String handlerId = DocConfig.TYPE_PDF;
-            // output generation
+            // output generation fixed
             docHelper.getDocProcessConfig().fullProcess(chainId,
-                    DocProcessContext.newContext("listPeople", listPeople), handlerId, baos);
+                    DocProcessContext.newContext("listPeople", listPeople).withAtt( "fixLineHandling", "1" ), handlerId, baos);
+            long peakMemoryFixed = this.printInfo( "after pdf generation (fixed)", false );
+            this.printInfo( "after pdf generation (fixed) gc", true );
+            // output generation original
+            docHelper.getDocProcessConfig().fullProcess(chainId,
+                    DocProcessContext.newContext("listPeople", listPeople).withAtt( "fixLineHandling", "0" ), handlerId, baos);
             long peakMemoryOriginal = this.printInfo( "after pdf generation (original)", false );
             this.printInfo( "after pdf generation (original) gc", true );
             // print the output
             log.info("{} output size : {}", handlerId, baos.size());
             Assertions.assertNotEquals(0, baos.size());
-            log.info( "peakMemoryOriginal : {}", this.formatMemory( peakMemoryOriginal ) );
+            log.info( "peakMemoryFixed : {} vs peakMemoryOriginal : {}", this.formatMemory( peakMemoryFixed ), this.formatMemory( peakMemoryOriginal ) );
         }
     }
 
