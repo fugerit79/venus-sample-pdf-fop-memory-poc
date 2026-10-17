@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryPoolMXBean;
+import java.lang.management.MemoryType;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -36,6 +39,7 @@ class DocHelperTest {
 
     @Test
     void testDocProcess() throws Exception {
+        this.printInfo( "start", true );
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
             // creates the doc helper
             DocHelper docHelper = new DocHelper();
@@ -45,14 +49,66 @@ class DocHelperTest {
 
             String chainId = "document";
             // handler id
-            String handlerId = DocConfig.TYPE_MD;
+            String handlerId = DocConfig.TYPE_PDF;
             // output generation
             docHelper.getDocProcessConfig().fullProcess(chainId,
                     DocProcessContext.newContext("listPeople", listPeople), handlerId, baos);
+            long peakMemoryOriginal = this.printInfo( "after pdf generation (original)", false );
+            this.printInfo( "after pdf generation (original) gc", true );
             // print the output
-            log.info("{} output : \n{}", handlerId, new String(baos.toByteArray(), StandardCharsets.UTF_8));
+            log.info("{} output size : {}", handlerId, baos.size());
             Assertions.assertNotEquals(0, baos.size());
+            log.info( "peakMemoryOriginal : {}", this.formatMemory( peakMemoryOriginal ) );
         }
     }
+
+
+    private String formatMemory( long mem ) {
+        return String.format( "%.2f MB", mem / ( 1024.0 * 1024.0 ) );
+    }
+
+    private long lastUsedMemory = 0;
+
+    private long lastTime = System.currentTimeMillis();
+
+    private long printInfo( String step, boolean runGc ) {
+        if ( runGc ) {
+            System.gc();
+        }
+        Runtime rt = Runtime.getRuntime();
+        long total = rt.totalMemory();
+        long free = rt.freeMemory();
+        long used = total - free;
+        long max = rt.maxMemory();
+        long deltaUsed = ( this.lastUsedMemory == 0 ) ? 0 : ( used - this.lastUsedMemory );
+        long now = System.currentTimeMillis();
+        long elapsedMs = now - this.lastTime;
+
+        long nonHeapUsed = ManagementFactory.getMemoryMXBean().getNonHeapMemoryUsage().getUsed();
+        long peakHeapUsed = 0;
+        for ( MemoryPoolMXBean pool : ManagementFactory.getMemoryPoolMXBeans() ) {
+            if ( pool.getType() == MemoryType.HEAP && pool.getPeakUsage() != null ) {
+                peakHeapUsed += pool.getPeakUsage().getUsed();
+                pool.resetPeakUsage();
+            }
+        }
+
+        log.info( "[{}] time: {} ms | usedHeap: {} (delta: {}{}) | peakHeap: {} | freeHeap: {} | totalHeap: {} | maxHeap: {} | nonHeap: {}",
+                step,
+                elapsedMs,
+                formatMemory( used ),
+                ( deltaUsed >= 0 ? "+" : "" ),
+                formatMemory( deltaUsed ),
+                formatMemory( peakHeapUsed ),
+                formatMemory( free ),
+                formatMemory( total ),
+                formatMemory( max ),
+                formatMemory( nonHeapUsed ) );
+
+        this.lastUsedMemory = used;
+        this.lastTime = System.currentTimeMillis();
+        return peakHeapUsed;
+    }
+
 
 }
