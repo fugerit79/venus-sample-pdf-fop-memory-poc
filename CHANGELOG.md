@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Enhanced `README.md` with a Mermaid pipeline diagram, a side-by-side comparison table (Original vs. Fixed), best-practice guidance on `format="preserve-line"` vs. splitting `<para>` tags, and updated requirement/init instructions.
+- Improved `DocHelperTest.java` by resetting `ByteArrayOutputStream` between runs, asserting `peakMemoryOriginal > peakMemoryFixed`, and updating class documentation.
+- Added explanatory comments in `document.ftl` highlighting the FOP memory trigger and fix condition.
+
+### Removed
+
+- Removed unused template scaffolding class `People.java`.
+
 ## [1.0.0] - 2026-10-17
 
 ### Added

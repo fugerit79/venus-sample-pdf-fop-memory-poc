@@ -21,6 +21,13 @@ here you can find the [other tutorials](https://github.com/fugerit79/venus-sampl
 
 This Proof of Concept (POC) reproduces and explains a real-world troubleshooting scenario: **abnormal heap memory consumption and potential `OutOfMemoryError` during Apache FOP PDF generation**.
 
+```mermaid
+flowchart LR
+    A["FreeMarker Template<br/>(document.ftl)"] --> B["Venus Doc XML<br/>(&lt;para format='preserve-line'&gt;)"]
+    B --> C["XSL-FO<br/>(&lt;fo:block linefeed-treatment='preserve'&gt;)"]
+    C --> D["Apache FOP<br/>(Knuth-Plass per line instead of 30k chars)"]
+```
+
 ### The Problem
 
 When generating a PDF from an XSL-FO document that contains very large blocks of text (such as ~30,000 characters or more), Apache FOP memory usage can suddenly explode, consuming hundreds of megabytes or even gigabytes of heap memory for a single document.
@@ -55,6 +62,11 @@ In [Venus Fugerit Doc](https://github.com/fugerit-org/fj-doc), paragraphs are de
 
 To prevent Apache FOP from running the unconstrained Knuth-Plass optimization over the entire block, set the attribute `format="preserve-line"` on the `<para>` tag:
 
+| Mode | Venus Doc XML (`document.ftl`) | Generated XSL-FO (`fj-doc-mod-fop`) | Memory Behavior |
+| :--- | :--- | :--- | :--- |
+| **Original (Default)** | `<para>30,000+ chars with \n...</para>` | `<fo:block>30,000+ chars...</fo:block>` *(defaults to `linefeed-treatment="treat-as-space"`)* | **~523 MB heap delta** (global Knuth-Plass across all 30k chars) |
+| **Fixed** | `<para format="preserve-line">30,000+ chars with \n...</para>` | `<fo:block linefeed-treatment="preserve">30,000+ chars...</fo:block>` | **~14 MB heap delta** (Knuth-Plass resets at every `\n`) |
+
 ```xml
 <para format="preserve-line" align="left" style="normal" size="12">
     Your very large text content with line breaks...
@@ -68,9 +80,10 @@ To prevent Apache FOP from running the unconstrained Knuth-Plass optimization ov
   ```
 - With `linefeed-treatment="preserve"`, Apache FOP respects line breaks (`\n`) as hard boundaries. It resets and processes line breaks per line rather than attempting global optimization across all 30,000 characters, completely eliminating the combinatorial explosion.
 
-### 2. Best Practice: Break Large Blocks into Multiple `<para>` Elements
+### 2. Best Practice: When to Use `preserve-line` vs. Splitting `<para>` Elements
 
-Whenever possible, avoid putting massive text blocks into a single `<para>` tag—especially inside table cells. Splitting text into separate paragraphs or smaller logical blocks ensures optimal layout performance and avoids memory bottlenecks.
+- **When `format="preserve-line"` is ideal**: Use it when your large text block contains natural line breaks (`\n`) that you want preserved in the PDF output (such as pre-formatted text, legal/medical transcripts, logs, or multi-line user input).
+- **When to split into multiple `<para>` elements**: If your input text is a single 30,000-character string **without any `\n` characters**, `format="preserve-line"` alone will not break it up. Whenever possible, avoid putting massive text blocks into a single `<para>` tag—especially inside table cells. Splitting text into separate `<para>` paragraphs or smaller logical chunks ensures optimal layout performance in all scenarios.
 
 ---
 
@@ -103,7 +116,7 @@ The test in this POC compares generating the exact same document containing a ~3
 
 ### Requirement
 
-* JDK 8+
+* JDK 21+
 * Maven 3.8+
 
 ### Running the Test
@@ -134,7 +147,7 @@ mvn org.fugerit.java:fj-doc-maven-plugin:8.18.4:init \
 -DartifactId=venus-sample-pdf-fop-memory-poc \
 -Dextensions=base,freemarker,mod-fop \
 -DaddJacoco=true \
--DaddJacoco=addFormatting=true \
+-DaddFormatting=true \
 -DwithCI=github \
 -Dflavour=vanilla
 ```

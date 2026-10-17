@@ -2,8 +2,6 @@
 package test.org.fugerit.java.demo.venussamplepdffopmemorypoc;
 
 import org.fugerit.java.demo.venussamplepdffopmemorypoc.DocHelper;
-import org.fugerit.java.demo.venussamplepdffopmemorypoc.People;
-
 import org.fugerit.java.doc.base.config.DocConfig;
 import org.fugerit.java.doc.base.process.DocProcessContext;
 
@@ -14,25 +12,18 @@ import java.io.ByteArrayOutputStream;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryPoolMXBean;
 import java.lang.management.MemoryType;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.List;
 import lombok.extern.slf4j.Slf4j;
-import lombok.Getter;
-import lombok.AllArgsConstructor;
 
 /**
- * This is a basic example of Fugerit Venus Doc usage,
- * running this junit will :
- * - creates data to be used in document model
- * - renders the 'document.ftl' template
- * - print the result in markdown format
+ * Proof of Concept (POC) test demonstrating Apache FOP heap memory consumption
+ * when rendering a large (~30,000 characters) text block inside a table cell.
  *
- * For further documentation :
+ * This test compares:
+ * - Fixed layout: using format="preserve-line" (XSL-FO linefeed-treatment="preserve")
+ * - Original layout: default Knuth-Plass paragraph line-breaking across all 30,000 characters
+ *
+ * For further documentation:
  * https://github.com/fugerit-org/fj-doc
- *
- * NOTE: This is a 'Hello World' style example, adapt it to your scenario, especially :
- * - change the doc handler and the output mode (here a ByteArrayOutputStream buffer is used)
  */
 @Slf4j
 class DocHelperTest {
@@ -41,29 +32,32 @@ class DocHelperTest {
     void testDocProcess() throws Exception {
         this.printInfo( "start", true );
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
-            // creates the doc helper
             DocHelper docHelper = new DocHelper();
-            // create custom data for the fremarker template 'document.ftl'
-            List<People> listPeople = Arrays.asList(
-                    new People("Luthien", "Tinuviel", "Queen"), new People("Thorin", "Oakshield", "King"));
-
             String chainId = "document";
-            // handler id
             String handlerId = DocConfig.TYPE_PDF;
-            // output generation fixed
+
+            // 1. Output generation with fix (format="preserve-line")
             docHelper.getDocProcessConfig().fullProcess(chainId,
-                    DocProcessContext.newContext("listPeople", listPeople).withAtt( "fixLineHandling", "1" ), handlerId, baos);
+                    DocProcessContext.newContext( "fixLineHandling", "1" ), handlerId, baos);
+            int fixedSize = baos.size();
             long peakMemoryFixed = this.printInfo( "after pdf generation (fixed)", false );
             this.printInfo( "after pdf generation (fixed) gc", true );
-            // output generation original
+
+            baos.reset();
+
+            // 2. Output generation with original default behavior
             docHelper.getDocProcessConfig().fullProcess(chainId,
-                    DocProcessContext.newContext("listPeople", listPeople).withAtt( "fixLineHandling", "0" ), handlerId, baos);
+                    DocProcessContext.newContext( "fixLineHandling", "0" ), handlerId, baos);
+            int originalSize = baos.size();
             long peakMemoryOriginal = this.printInfo( "after pdf generation (original)", false );
             this.printInfo( "after pdf generation (original) gc", true );
-            // print the output
-            log.info("{} output size : {}", handlerId, baos.size());
-            Assertions.assertNotEquals(0, baos.size());
+
+            log.info("{} output size - fixed: {} bytes, original: {} bytes", handlerId, fixedSize, originalSize);
+            Assertions.assertNotEquals(0, fixedSize);
+            Assertions.assertNotEquals(0, originalSize);
             log.info( "peakMemoryFixed : {} vs peakMemoryOriginal : {}", this.formatMemory( peakMemoryFixed ), this.formatMemory( peakMemoryOriginal ) );
+            Assertions.assertTrue( peakMemoryOriginal > peakMemoryFixed,
+                    "Expected original unsegmented Knuth-Plass layout to consume more peak heap memory than fixed layout" );
         }
     }
 
@@ -114,6 +108,5 @@ class DocHelperTest {
         this.lastTime = System.currentTimeMillis();
         return peakHeapUsed;
     }
-
 
 }
