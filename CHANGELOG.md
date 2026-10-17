@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-18
+
 ### Changed
 
 - Enhanced `README.md` with a Mermaid pipeline diagram, a side-by-side comparison table (Original vs. Fixed), best-practice guidance on `format="preserve-line"` vs. splitting `<para>` tags, and updated requirement/init instructions.
