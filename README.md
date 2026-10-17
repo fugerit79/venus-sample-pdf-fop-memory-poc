@@ -12,17 +12,110 @@ This is a sample project configured using [fj-doc-maven-plugin init plugin](http
 [![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](https://opensource.org/licenses/MIT)
 [![code of conduct](https://img.shields.io/badge/conduct-Contributor%20Covenant-purple.svg)](https://github.com/fugerit-org/fj-universe/blob/main/CODE_OF_CONDUCT.md)
 
-This project is part of a series of mini tutorial on [Venus Fugerit Doc](https://github.com/fugerit-org/fj-doc),
+This project is part of a series of mini tutorials on [Venus Fugerit Doc](https://github.com/fugerit-org/fj-doc),
 here you can find the [other tutorials](https://github.com/fugerit79/venus-sample-index).
 
-## Requirement
+---
 
-* JDK 8+ (*)
+## Overview: Apache FOP High Memory Consumption POC
+
+This Proof of Concept (POC) reproduces and explains a real-world troubleshooting scenario: **abnormal heap memory consumption and potential `OutOfMemoryError` during Apache FOP PDF generation**.
+
+### The Problem
+
+When generating a PDF from an XSL-FO document that contains very large blocks of text (such as ~30,000 characters or more), Apache FOP memory usage can suddenly explode, consuming hundreds of megabytes or even gigabytes of heap memory for a single document.
+
+#### The Culprit: Knuth-Plass Line-Breaking Algorithm
+
+> *"The culprit: Apache FOP's Knuth-Plass line-breaking algorithm operating on a single `<fo:block>` of 30,000 characters without `linefeed-treatment="preserve"`"*
+
+Under the hood:
+1. **Knuth-Plass Algorithm**: Apache FOP uses the Knuth-Plass line-breaking algorithm (originally designed for TeX) to find the aesthetically optimal line breaks for an entire paragraph by evaluating candidate break points using boxes, glue, and penalties.
+2. **Default Whitespace Handling**: By default in XSL-FO, `<fo:block>` has `linefeed-treatment="treat-as-space"`. If a large chunk of text with line breaks is placed inside a single `<fo:block>`, FOP does not break the calculation at newlines—it treats the entire 30,000+ character text as **one gigantic continuous paragraph**.
+3. **Combinatorial Explosion**: The Knuth-Plass algorithm attempts to calculate the optimal line breaks globally across the entire block. The active node graph and candidate break states grow exponentially, resulting in severe memory allocation spikes and high CPU time.
+
+---
+
+## The Solution in Fugerit Venus Doc
+
+In [Venus Fugerit Doc](https://github.com/fugerit-org/fj-doc), paragraphs are defined using the `<para>` element.
+
+### 1. Using `format="preserve-line"`
+
+To prevent Apache FOP from running the unconstrained Knuth-Plass optimization over the entire block, set the attribute `format="preserve-line"` on the `<para>` tag:
+
+```xml
+<para format="preserve-line" align="left" style="normal" size="12">
+    Your very large text content with line breaks...
+</para>
+```
+
+#### How it works:
+- The `fj-doc-mod-fop` handler maps `format="preserve-line"` directly to the XSL-FO attribute `linefeed-treatment="preserve"` on the generated `<fo:block>`:
+  ```xml
+  <fo:block linefeed-treatment="preserve" ...>
+  ```
+- With `linefeed-treatment="preserve"`, Apache FOP respects line breaks (`\n`) as hard boundaries. It resets and processes line breaks per line rather than attempting global optimization across all 30,000 characters, completely eliminating the combinatorial explosion.
+
+### 2. Best Practice: Break Large Blocks into Multiple `<para>` Elements
+
+Whenever possible, avoid putting massive text blocks into a single `<para>` tag. Splitting text into separate paragraphs or smaller logical blocks ensures optimal layout performance and avoids memory bottlenecks.
+
+---
+
+## Benchmark & Results
+
+The test in this POC compares generating the exact same document containing a ~30,000 character block with and without the fix:
+
+| Metric | Fixed (`format="preserve-line"`) | Original (Default Knuth-Plass) | Difference |
+| :--- | :--- | :--- | :--- |
+| **Generation Time** | **~1.3 s** | ~2.8 s | **~2x faster** |
+| **Used Heap Delta** | **+14.15 MB** | +523.17 MB | **>35x less heap allocated** |
+| **Peak Heap Usage** | **181.02 MB** | 951.25 MB | **>5x peak memory reduction** |
+
+*Measurements taken using Java MXBeans during JUnit test execution.*
+
+---
+
+## POC Structure
+
+* **Template**: [`src/main/resources/venus-sample-pdf-fop-memory-poc/template/document.ftl`](src/main/resources/venus-sample-pdf-fop-memory-poc/template/document.ftl)
+  - Contains a sample text of ~30,000 characters inside a table cell `<para>`.
+  - Conditioned with `<#if fixLineHandling = '1'> format="preserve-line" </#if>` to toggle the fix.
+* **JUnit Test**: [`src/test/java/test/org/fugerit/java/demo/venussamplepdffopmemorypoc/DocHelperTest.java`](src/test/java/test/org/fugerit/java/demo/venussamplepdffopmemorypoc/DocHelperTest.java)
+  - Executes PDF generation for both configurations (`fixLineHandling = "1"` and `fixLineHandling = "0"`).
+  - Measures elapsed time, heap delta, and peak heap usage using `MemoryPoolMXBean`.
+
+---
+
+## How to Run
+
+### Requirement
+
+* JDK 8+
 * Maven 3.8+
 
-## Project initialization
+### Running the Test
 
-This project was created with [Venus Maven plugin](https://venusdocs.fugerit.org/guide/#maven-plugin-goal-init)
+Run the test suite with Maven:
+
+```shell
+mvn clean test
+```
+
+Inspect the test logs to see the memory benchmark comparison:
+
+```text
+[after pdf generation (fixed)]    time: 1344 ms | usedHeap: 20.22 MB (delta: +14.15 MB)  | peakHeap: 181.02 MB
+[after pdf generation (original)] time: 2787 ms | usedHeap: 535.25 MB (delta: +523.17 MB) | peakHeap: 951.25 MB
+peakMemoryFixed : 181.02 MB vs peakMemoryOriginal : 951.25 MB
+```
+
+---
+
+## Project Initialization
+
+This project was created with [Venus Maven plugin](https://venusdocs.fugerit.org/guide/#maven-plugin-goal-init):
 
 ```shell
 mvn org.fugerit.java:fj-doc-maven-plugin:8.18.4:init \
