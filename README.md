@@ -25,14 +25,25 @@ This Proof of Concept (POC) reproduces and explains a real-world troubleshooting
 
 When generating a PDF from an XSL-FO document that contains very large blocks of text (such as ~30,000 characters or more), Apache FOP memory usage can suddenly explode, consuming hundreds of megabytes or even gigabytes of heap memory for a single document.
 
+#### Specific Trigger Combinations
+
+It is important to note that this critical memory spike typically occurs under a specific combination of factors:
+
+1. **Inside Table Cells (`<cell>` / `<fo:table-cell>`)**:
+   - In Apache FOP, table formatting requires negotiating cell widths, row heights, and page breaks across cells.
+   - Unlike standard root-level flow paragraphs that FOP can paginate and flush sequentially, blocks inside table cells must be completely evaluated and held in memory during the table layout pass.
+2. **A Very Large Unsegmented Block**:
+   - A single `<para>` containing a massive amount of text (~30,000 characters or more).
+3. **Default Linefeed Handling**:
+   - By default in XSL-FO, `<fo:block>` uses `linefeed-treatment="treat-as-space"`. FOP treats newlines as ordinary spaces, causing the entire block to be handled as **one continuous, gigantic paragraph**.
+
 #### The Culprit: Knuth-Plass Line-Breaking Algorithm
 
 > *"The culprit: Apache FOP's Knuth-Plass line-breaking algorithm operating on a single `<fo:block>` of 30,000 characters without `linefeed-treatment="preserve"`"*
 
 Under the hood:
 1. **Knuth-Plass Algorithm**: Apache FOP uses the Knuth-Plass line-breaking algorithm (originally designed for TeX) to find the aesthetically optimal line breaks for an entire paragraph by evaluating candidate break points using boxes, glue, and penalties.
-2. **Default Whitespace Handling**: By default in XSL-FO, `<fo:block>` has `linefeed-treatment="treat-as-space"`. If a large chunk of text with line breaks is placed inside a single `<fo:block>`, FOP does not break the calculation at newlines—it treats the entire 30,000+ character text as **one gigantic continuous paragraph**.
-3. **Combinatorial Explosion**: The Knuth-Plass algorithm attempts to calculate the optimal line breaks globally across the entire block. The active node graph and candidate break states grow exponentially, resulting in severe memory allocation spikes and high CPU time.
+2. **Combinatorial Explosion**: Because newlines are treated as spaces, the algorithm attempts to calculate optimal line breaks globally across the entire 30,000+ character block. The active node graph and candidate break states grow exponentially, resulting in severe memory allocation spikes and high CPU time.
 
 ---
 
@@ -59,7 +70,7 @@ To prevent Apache FOP from running the unconstrained Knuth-Plass optimization ov
 
 ### 2. Best Practice: Break Large Blocks into Multiple `<para>` Elements
 
-Whenever possible, avoid putting massive text blocks into a single `<para>` tag. Splitting text into separate paragraphs or smaller logical blocks ensures optimal layout performance and avoids memory bottlenecks.
+Whenever possible, avoid putting massive text blocks into a single `<para>` tag—especially inside table cells. Splitting text into separate paragraphs or smaller logical blocks ensures optimal layout performance and avoids memory bottlenecks.
 
 ---
 
@@ -80,7 +91,7 @@ The test in this POC compares generating the exact same document containing a ~3
 ## POC Structure
 
 * **Template**: [`src/main/resources/venus-sample-pdf-fop-memory-poc/template/document.ftl`](src/main/resources/venus-sample-pdf-fop-memory-poc/template/document.ftl)
-  - Contains a sample text of ~30,000 characters inside a table cell `<para>`.
+  - Contains a sample text of ~30,000 characters inside a table cell `<cell><para>...</para></cell>`.
   - Conditioned with `<#if fixLineHandling = '1'> format="preserve-line" </#if>` to toggle the fix.
 * **JUnit Test**: [`src/test/java/test/org/fugerit/java/demo/venussamplepdffopmemorypoc/DocHelperTest.java`](src/test/java/test/org/fugerit/java/demo/venussamplepdffopmemorypoc/DocHelperTest.java)
   - Executes PDF generation for both configurations (`fixLineHandling = "1"` and `fixLineHandling = "0"`).
